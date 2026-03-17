@@ -1,5 +1,5 @@
--- 50/50 v13
--- drums + bass sequencer / PolyPerc engine
+-- 50/50 v14
+-- drums + bass sequencer / Supertonic engine
 -- K1: system | K2: play/stop | K3: randomize
 -- K2 double-tap: tap tempo
 -- enc1: bpm | enc2: drum pattern | enc3: bass pattern
@@ -12,7 +12,7 @@
 -- grid row 8: 16 save slots (hold 3s=save, tap=recall)
 -- MIDI: drums ch1, bass ch2
 
-engine.name = "PolyPerc"
+engine.name = "Supertonic"
 
 local midi_out
 local DRUM_CH      = 1
@@ -67,29 +67,49 @@ local state = {
   last_tap          = 0,
   tap_count         = 0,
   tap_times         = {},
-  -- portamento
-  last_bass_hz      = nil,
   -- length multiplier
   drum_len_mult     = 1,  -- 0.5, 1, 2
   bass_len_mult     = 1,
 }
 
 -- ─────────────────────────────────────────────
--- DRUM SOUND MAP
+-- SUPERTONIC DRUM PATCHES
+-- param order: distAmt, eQFreq, eQGain, level, mix,
+--              modAmt, modMode, modRate,
+--              nEnvAtk, nEnvDcy, nEnvMod, nFilFrq, nFilMod, nFilQ, nStereo,
+--              oscAtk, oscDcy, oscFreq, oscWave,
+--              oscVel, nVel, modVel,
+--              fx_lowpass_freq, fx_lowpass_rq
+-- modMode: 0=decay sweep 1=sine LFO 2=random
+-- nEnvMod: 0=exp 1=lin 2=clap
+-- nFilMod: 0=LP 1=BP 2=HP
+-- oscWave: 0=sine 1=tri 2=saw
 -- ─────────────────────────────────────────────
-local DRUM_SOUND = {
-  [24]={hz=50,   release=0.20, amp=0.85, cutoff=180},
-  [36]={hz=75,   release=0.16, amp=0.85, cutoff=280},
-  [37]={hz=850,  release=0.03, amp=0.45, cutoff=2800},
-  [38]={hz=190,  release=0.11, amp=0.75, cutoff=1100},
-  [39]={hz=280,  release=0.07, amp=0.65, cutoff=1900},
-  [40]={hz=220,  release=0.09, amp=0.70, cutoff=1300},
-  [42]={hz=3800, release=0.018,amp=0.35, cutoff=7500},
-  [45]={hz=120,  release=0.11, amp=0.65, cutoff=550},
-  [46]={hz=3800, release=0.09, amp=0.38, cutoff=7500},
-  [49]={hz=2800, release=0.22, amp=0.45, cutoff=5500},
-  [50]={hz=210,  release=0.09, amp=0.65, cutoff=850},
-  [51]={hz=3300, release=0.13, amp=0.38, cutoff=6500},
+local DRUM_PATCHES = {
+  -- Sub Kick: very deep pitch sweep, long decay, mostly oscillator
+  [24] = {6,  60,  3, -2, 90, 14, 0, 7,  0, 35,  0,  600, 2, 1.2, 0.0, 1, 400, 40,  0, 1.0, 0.5, 0.8, 8000, 0.7},
+  -- Kick: 808-style, pitch sweep down, transient click from HP noise
+  [36] = {8,  80,  2, -2, 85, 18, 0, 8,  0, 40,  0,  800, 2, 1.5, 0.0, 1, 280, 55,  0, 1.0, 0.6, 1.0, 8000, 0.7},
+  -- Rimshot: short sine + BP noise burst
+  [37] = {3, 1800, 4, -6, 40,  4, 0, 10, 0, 22,  0, 1800, 1, 3.0, 0.1, 0, 25,  800, 0, 1.0, 1.0, 0.5, 12000,0.8},
+  -- Snare: osc body + wide BP noise
+  [38] = {5, 2400, 2, -3, 45,  6, 0, 8,  0, 180, 0, 3000, 1, 0.8, 0.3, 0, 120, 200, 0, 1.0, 1.0, 0.8, 10000,0.7},
+  -- Hand Clap: clap mode (nEnvMod=2), almost all noise, BP-filtered
+  [39] = {2, 1500, 0, -4,  5,  0, 0, 0,  0, 60,  2, 1500, 1, 1.5, 0.5, 0, 40,  600, 0, 0.0, 1.0, 0.0, 8000, 0.8},
+  -- Electric Snare: tight, higher-pitched than snare
+  [40] = {4, 3000, 2, -4, 42,  5, 0, 9,  0, 100, 0, 4000, 1, 1.0, 0.2, 0, 80,  220, 0, 1.0, 1.0, 0.7, 10000,0.7},
+  -- Closed HH: very short HP noise + saw transient
+  [42] = {0,10000, 2, -8,  5,  0, 0, 0,  0, 18,  0, 9000, 2, 0.8, 0.1, 0, 20, 4000, 2, 0.5, 1.0, 0.0, 14000,0.8},
+  -- Low Tom: pitched sine, pitch sweep, LP noise body
+  [45] = {4, 1500, 0, -4, 75, 10, 0, 6,  0, 60,  0, 1500, 0, 1.5, 0.2, 1, 180, 100, 0, 1.0, 0.5, 0.8, 8000, 0.7},
+  -- Open HH: longer HP noise decay + saw
+  [46] = {0,10000, 2, -7,  6,  0, 0, 0,  0, 90,  0, 9000, 2, 0.8, 0.2, 0, 80, 4000, 2, 0.5, 1.0, 0.0, 14000,0.8},
+  -- Crash Cymbal: long BP noise wash + saw ring
+  [49] = {2, 5000, 0, -6,  8,  0, 0, 0,  0, 500, 0, 5000, 1, 0.6, 0.8, 0, 600,3000, 2, 0.3, 1.0, 0.0, 16000,0.9},
+  -- High Tom: like low tom but higher pitch, tighter
+  [50] = {3, 1200, 0, -4, 72,  9, 0, 7,  0, 50,  0, 1200, 0, 1.2, 0.2, 1, 150, 180, 0, 1.0, 0.5, 0.8, 8000, 0.7},
+  -- Ride Cymbal: long BP noise ring + saw shimmer
+  [51] = {1, 4500, 0, -8, 12,  0, 0, 0,  0, 350, 0, 4500, 1, 0.7, 0.5, 0, 400,3200, 2, 0.3, 1.0, 0.0, 16000,0.9},
 }
 
 -- ─────────────────────────────────────────────
@@ -485,47 +505,54 @@ end
 -- ─────────────────────────────────────────────
 local active_bass_note_midi = nil
 
+-- Fire a drum hit via Supertonic engine.
+-- Velocity scales oscVel, nVel, modVel; density scales overall amplitude.
 local function fire_drum(note, vel, extra_delay)
-  local s = DRUM_SOUND[note]
-  if not s then return end
-  local density = params:get("drum_density")/100.0
-  local amp = (vel/127)*s.amp*density
+  local p = DRUM_PATCHES[note]
+  if not p then return end
+  local density  = params:get("drum_density") / 100.0
+  local vel_norm = (vel / 127) * density
   clock.run(function()
-    local d=extra_delay+humanize_delay()+swing_delay(state.drum_step)
-    if d>0 then clock.sleep(d) end
-    engine.release(s.release)
-    engine.cutoff(s.cutoff)
-    engine.amp(amp)
-    engine.hz(s.hz)
-    state.drum_level=math.min(1,amp*1.3)
+    local d = extra_delay + humanize_delay() + swing_delay(state.drum_step)
+    if d > 0 then clock.sleep(d) end
+    engine.supertonic(
+      p[1],            -- distAmt
+      p[2],            -- eQFreq
+      p[3],            -- eQGain
+      p[4],            -- level (dB)
+      p[5],            -- mix
+      p[6],            -- modAmt
+      p[7],            -- modMode
+      p[8],            -- modRate
+      p[9],            -- nEnvAtk
+      p[10],           -- nEnvDcy
+      p[11],           -- nEnvMod
+      p[12],           -- nFilFrq
+      p[13],           -- nFilMod
+      p[14],           -- nFilQ
+      p[15],           -- nStereo
+      p[16],           -- oscAtk
+      p[17],           -- oscDcy
+      p[18],           -- oscFreq
+      p[19],           -- oscWave
+      p[20] * vel_norm, -- oscVel (velocity + density scaled)
+      p[21] * vel_norm, -- nVel   (velocity + density scaled)
+      p[22] * vel_norm, -- modVel (velocity + density scaled)
+      p[23],           -- fx_lowpass_freq
+      p[24]            -- fx_lowpass_rq
+    )
+    state.drum_level = math.min(1, vel_norm * 1.3)
   end)
 end
 
+-- Bass is MIDI-only (only one engine can load at a time).
+-- Timing offset and level display are handled here.
 local function fire_bass(note, vel, extra_delay)
-  local amp    = (vel/127)*0.82
-  local cutoff = params:get("bass_cutoff")*(0.5+(vel/127)*0.5)
-  local porto  = params:get("portamento")
+  local amp = (vel / 127) * 0.82
   clock.run(function()
-    local d=extra_delay+humanize_delay()
-    if d>0 then clock.sleep(d) end
-    engine.release(params:get("bass_release"))
-    engine.cutoff(cutoff)
-    engine.amp(amp)
-    -- portamento: slide from last hz
-    local target_hz = midi_to_hz(note)
-    if porto>0 and state.last_bass_hz then
-      local steps = math.floor(porto*20)
-      local start_hz = state.last_bass_hz
-      for i=1,steps do
-        local t = i/steps
-        local hz = start_hz + (target_hz-start_hz)*t
-        engine.hz(hz)
-        clock.sleep(porto/steps)
-      end
-    end
-    engine.hz(target_hz)
-    state.last_bass_hz = target_hz
-    state.bass_level=math.min(1,amp*1.3)
+    local d = extra_delay + humanize_delay()
+    if d > 0 then clock.sleep(d) end
+    state.bass_level = math.min(1, amp * 1.3)
   end)
 end
 
@@ -795,7 +822,6 @@ function key(n, z)
       k2_last_press=now
     elseif n==3 then
       -- single press: randomize
-      -- double press: mutate current patterns
       state.drum_pattern=math.random(1,TOTAL_DRUM)
       state.bass_pattern=math.random(1,TOTAL_BASS)
       state.drum_step=1 state.bass_step=1
@@ -826,12 +852,6 @@ end
 local function add_params()
   params:add_separator("50/50")
 
-  params:add_control("bass_cutoff","Bass Cutoff",
-    controlspec.new(100,8000,"exp",1,900,"hz"))
-  params:add_control("bass_release","Bass Release",
-    controlspec.new(0.01,2.0,"exp",0.01,0.18,"s"))
-  params:add_control("portamento","Portamento",
-    controlspec.new(0,0.3,"lin",0.01,0,"s"))
   params:add_number("drum_density","Drum Density",10,100,100)
   params:add_number("step_prob","Step Probability",10,100,100)
   params:add_number("swing","Swing",0,100,50)
@@ -893,11 +913,6 @@ function init()
   state.bass_pattern=math.random(1,TOTAL_BASS)
   state.bpm=128
 
-  engine.gain(4.0)
-  engine.cutoff(900)
-  engine.release(0.15)
-  engine.amp(0.8)
-
   add_params()
 
   midi_out=midi.connect(params:get("midi_out_device"))
@@ -914,12 +929,13 @@ function init()
   screen_redraw()
   grid_redraw()
 
-  print("50/50 v13 ready")
+  print("50/50 v14 ready -- Supertonic engine")
   print("K2: play/stop  double-K2: tap tempo")
   print("K3: randomize")
-  print("PARAMS: mutate, density, portamento, length mult, step prob")
+  print("PARAMS: mutate, density, length mult, step prob")
   print("grid r7 col1-4: mute drums  col5-8: stutter drums")
   print("grid r7 col9-12: mute bass  col13-16: stutter bass")
+  print("bass: MIDI ch2 only (Supertonic handles drums)")
 end
 
 function cleanup()
