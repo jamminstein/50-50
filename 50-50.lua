@@ -20,6 +20,11 @@ local BASS_CH      = 2
 local grid_device
 local clock_id
 local morph_clock_id
+local split_col    = 8        -- 4-12, divides drum/acid sides
+local coupling     = 0        -- 0-1, hard kick boosts filter
+local random_amount = 100     -- 0-100%, scale auto-randomization intensity
+local drum_midi_ch = 10
+local bass_midi_ch = 1
 
 -- ─────────────────────────────────────────────
 -- NOTE NAMES
@@ -578,11 +583,13 @@ local function tick()
   local d_cell = get_step(get_drum_loop_maybe_mutated,
     state.drum_pattern, state.drum_morph_target,
     state.morph_pos, d_step, state.drum_len_mult)
+  local drum_fired = false
   if d_cell and not state.drum_muted and prob_gate(d_step) then
     local note,vel = d_cell[1], humanize_vel(d_cell[2])
     fire_drum(note, vel, 0)
-    midi_note_on(DRUM_CH, note, vel)
-    clock.run(function() clock.sleep(0.05) midi_note_off(DRUM_CH,note) end)
+    midi_note_on(drum_midi_ch, note, vel)
+    clock.run(function() clock.sleep(0.05) midi_note_off(drum_midi_ch,note) end)
+    drum_fired = true
   else
     state.drum_level=state.drum_level*0.5
   end
@@ -593,13 +600,22 @@ local function tick()
     state.bass_pattern, state.bass_morph_target,
     state.morph_pos, b_step, state.bass_len_mult)
   if active_bass_note_midi then
-    midi_note_off(BASS_CH, active_bass_note_midi)
+    midi_note_off(bass_midi_ch, active_bass_note_midi)
     active_bass_note_midi=nil
   end
   if b_cell and not state.bass_muted and prob_gate(b_step) then
     local note,vel = b_cell[1], humanize_vel(b_cell[2])
     fire_bass(note, vel, 0.012)
-    midi_note_on(BASS_CH, note, vel)
+    -- cross-side interaction: hard kick boosts filter cutoff
+    if drum_fired and coupling > 0 then
+      local boost = coupling * 3000
+      engine.cutoff(math.min(8000, params:get("cutoff") + boost))
+      clock.run(function()
+        clock.sleep(0.1)
+        engine.cutoff(params:get("cutoff"))
+      end)
+    end
+    midi_note_on(bass_midi_ch, note, vel)
     active_bass_note_midi   = note
     state.active_bass_note  = note
   else
@@ -891,6 +907,25 @@ local function add_params()
     drum_mutations={} bass_mutations={}
     print("50/50: mutations cleared")
   end)
+
+  -- split position
+  params:add_number("split_col","Split Position",4,12,8)
+  params:set_action("split_col",function(v) split_col=v end)
+
+  -- cross-side coupling
+  params:add_control("coupling","Cross-Side Coupling",
+    controlspec.new(0,1,"lin",0.01,0,""))
+  params:set_action("coupling",function(v) coupling=v end)
+
+  -- randomize intensity
+  params:add_number("random_amount","Randomize Intensity",0,100,100)
+  params:set_action("random_amount",function(v) random_amount=v end)
+
+  -- per-side MIDI channels
+  params:add_number("drum_midi_ch","Drum MIDI CH",1,16,10)
+  params:set_action("drum_midi_ch",function(v) drum_midi_ch=v end)
+  params:add_number("bass_midi_ch","Bass MIDI CH",1,16,1)
+  params:set_action("bass_midi_ch",function(v) bass_midi_ch=v end)
 
   params:add_number("midi_out_device","MIDI Out Device",1,4,1)
   params:set_action("midi_out_device",function(v)
