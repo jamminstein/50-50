@@ -51,6 +51,8 @@ engine.name = current_engine
 -- ─────────────────────────────────────────────
 local eng = {}
 
+local dirty = true
+local grid_dirty = true
 local function midi_to_hz(note)
   return 440*(2^((note-69)/12))
 end
@@ -769,7 +771,7 @@ local function tick()
     if state.stutter_step > 4 then state.stutter_step = 1 end
   end
 
-  screen_redraw()
+  dirty=true
   grid_redraw()
 end
 
@@ -946,7 +948,7 @@ local function start_robot_clock()
         local current_beat = clock.get_beats()
         robot_tick(current_beat)
         knob_loop_tick(current_beat)
-        screen_redraw()
+        dirty=true
       end
     end
   end)
@@ -974,7 +976,7 @@ local function tap_tempo()
     local new_bpm = math.floor(util.clamp(60/avg, 40, 300))
     state.bpm = new_bpm
     params:set("clock_tempo", state.bpm)
-    screen_redraw()
+    dirty=true
   end
 end
 
@@ -1022,7 +1024,7 @@ local function grid_key(x, y, z)
         end
       end
     end
-    grid_redraw() screen_redraw()
+    dirty=true; grid_dirty=true
     return
   end
 
@@ -1073,7 +1075,7 @@ local function grid_key(x, y, z)
         if state.stutter_bass then state.stutter_step=util.clamp(state.bass_step, 1, 4) end
       end
     end
-    grid_redraw() screen_redraw()
+    dirty=true; grid_dirty=true
   end
 end
 
@@ -1106,7 +1108,7 @@ function key(n, z)
         else
           knob_loop_start_recording()
         end
-        screen_redraw() grid_redraw()
+        dirty=true; grid_dirty=true
         return
       end
       -- short press: double-tap for tempo, single tap for play/stop
@@ -1134,7 +1136,7 @@ function key(n, z)
                 active_bass_note_midi=nil state.active_bass_note=nil
               end
             end
-            screen_redraw() grid_redraw()
+            dirty=true; grid_dirty=true
           end
         end)
       end
@@ -1150,7 +1152,7 @@ function key(n, z)
       if held >= K_LONG_PRESS then
         -- long-press K3: cycle robot mode
         robot_cycle_style()
-        screen_redraw() grid_redraw()
+        dirty=true; grid_dirty=true
         return
       end
       -- short press K3: randomize
@@ -1159,7 +1161,7 @@ function key(n, z)
       state.drum_step=1 state.bass_step=1
       state.drum_morph_target=nil state.bass_morph_target=nil
       state.morph_pos=0
-      screen_redraw() grid_redraw()
+      dirty=true; grid_dirty=true
     end
   end
 end
@@ -1187,7 +1189,7 @@ function enc(n, d)
     state.bass_pattern=util.clamp(state.bass_pattern+d, 1, TOTAL_BASS)
     state.bass_step=1
   end
-  screen_redraw() grid_redraw()
+  dirty=true; grid_dirty=true
 end
 
 -- ─────────────────────────────────────────────
@@ -1348,8 +1350,22 @@ function init()
   start_morph_clock()
   start_robot_clock()
 
-  screen_redraw()
-  grid_redraw()
+  -- Screen refresh at 15fps using dirty flag
+  local redraw_metro = metro.init()
+  redraw_metro.event = function()
+    if dirty then
+      dirty = false
+      redraw()
+    end
+    if grid_dirty and grid_device then
+      grid_dirty = false
+      grid_redraw()
+    end
+  end
+  redraw_metro:start(1/15)
+
+  dirty = true
+  grid_dirty = true
 
   print("50/50 v14 + Multi-Engine Ready")
   print("Current Engine: " .. current_engine)
