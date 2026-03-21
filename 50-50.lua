@@ -1,6 +1,6 @@
 -- 50/50 v14 + Multi-Engine Selection
 -- drums + bass sequencer / PolyPerc, MollyThePoly, or Supertonic
--- K1: system | K2: play/stop | K3: randomize
+-- K1: system (norns menu) | K2: play/stop | K3: randomize
 -- K2 double-tap: tap tempo
 -- enc1: bpm | enc2: drum pattern | enc3: bass pattern
 -- grid rows 1-3 left : drum patterns
@@ -12,8 +12,8 @@
 -- grid row 8: 16 save slots (hold 3s=save, tap=recall)
 -- MIDI: drums ch1, bass ch2
 --
--- NEW: K1+K2: record/stop encoder movements (Knob Looper)
--- NEW: K1+K3: cycle Robot Mode styles (breathe/build/chaos/pocket)
+-- NEW: K2 long-press: record/stop encoder movements (Knob Looper)
+-- NEW: K3 long-press: cycle Robot Mode styles (breathe/build/chaos/pocket)
 -- NEW: Multi-engine selection (PolyPerc / MollyThePoly / Supertonic)
 
 -- ─────────────────────────────────────────────
@@ -561,8 +561,7 @@ local function screen_redraw()
   local blabel = "ACID"
   if state.bass_muted then blabel=blabel.."[M]" end
   if state.stutter_bass then blabel=blabel.."[S]" end
-  if robot.active then blabel=blabel.."[ROBOT:"..robot.styles[robot.style_idx].."]"
-  elseif knob_loop.playing then blabel=blabel.."[LOOP]" end
+  if robot.active then blabel=blabel.."[ROBOT:"..robot.styles[robot.style_idx].."]"\n  elseif knob_loop.playing then blabel=blabel.."[LOOP]" end
   screen.level(state.bass_muted and 4 or 15) screen.text(blabel)
   screen.level(5) screen.font_size(7)
   screen.move(68,16)
@@ -1068,20 +1067,27 @@ end
 -- ─────────────────────────────────────────────
 -- KEYS & ENCODERS
 -- ─────────────────────────────────────────────
+-- K1 = system (norns reserved, not intercepted)
+-- K2 tap = play/stop, K2 double-tap = tap tempo, K2 long-press = knob loop rec
+-- K3 tap = randomize, K3 long-press = cycle robot mode
 local k2_last_press = 0
 local k2_tap_pending = false
-local k1_held = false
+local k2_press_time = 0
+local k3_press_time = 0
+local K_LONG_PRESS = 0.5  -- seconds for long-press threshold
 
 function key(n, z)
-  if n==1 then
-    k1_held = (z == 1)
-    return
-  end
-  
-  if z==1 then
-    if n==2 then
-      -- K1+K2: record/stop knob movements
-      if k1_held then
+  -- K1: reserved for norns system menu, do not intercept
+  if n==1 then return end
+
+  if n==2 then
+    if z==1 then
+      k2_press_time = os.clock()
+    else
+      -- K2 release: check long-press
+      local held = os.clock() - k2_press_time
+      if held >= K_LONG_PRESS then
+        -- long-press K2: toggle knob loop recording
         if knob_loop.recording then
           knob_loop_stop_recording()
         else
@@ -1090,8 +1096,7 @@ function key(n, z)
         screen_redraw() grid_redraw()
         return
       end
-      
-      -- normal K2 double-tap for tempo
+      -- short press: double-tap for tempo, single tap for play/stop
       local now = os.clock()
       if now - k2_last_press < 0.4 then
         -- double tap = tap tempo
@@ -1099,7 +1104,6 @@ function key(n, z)
         k2_tap_pending=false
       else
         k2_tap_pending=true
-        local press_time=now
         clock.run(function()
           clock.sleep(0.4)
           if k2_tap_pending then
@@ -1122,22 +1126,28 @@ function key(n, z)
         end)
       end
       k2_last_press=now
-    elseif n==3 then
-      -- K1+K3: cycle robot mode
-      if k1_held then
+    end
+
+  elseif n==3 then
+    if z==1 then
+      k3_press_time = os.clock()
+    else
+      -- K3 release: check long-press
+      local held = os.clock() - k3_press_time
+      if held >= K_LONG_PRESS then
+        -- long-press K3: cycle robot mode
         robot_cycle_style()
         screen_redraw() grid_redraw()
         return
       end
-      
-      -- normal K3: randomize
+      -- short press K3: randomize
       state.drum_pattern=math.random(1,TOTAL_DRUM)
       state.bass_pattern=math.random(1,TOTAL_BASS)
       state.drum_step=1 state.bass_step=1
       state.drum_morph_target=nil state.bass_morph_target=nil
       state.morph_pos=0
+      screen_redraw() grid_redraw()
     end
-    screen_redraw() grid_redraw()
   end
 end
 
@@ -1318,10 +1328,9 @@ function init()
 
   print("50/50 v14 + Multi-Engine Ready")
   print("Current Engine: " .. current_engine)
-  print("K1: System | K2: Play/Stop | K3: Randomize")
-  print("K2 double-tap: tap tempo")
-  print("K1+K2: record/stop encoder loops (Knob Looper)")
-  print("K1+K3: cycle Robot Mode (breathe/build/chaos/pocket)")
+  print("K1: System Menu | K2: Play/Stop | K3: Randomize")
+  print("K2 double-tap: tap tempo | K2 long-press: knob loop rec")
+  print("K3 long-press: cycle Robot Mode (breathe/build/chaos/pocket)")
   print("Change engine in PARAMS > sound engine (reloads script)")
 end
 
