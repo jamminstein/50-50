@@ -1335,6 +1335,10 @@ function init()
   print("Change engine in PARAMS > sound engine (reloads script)")
 end
 
+function redraw()
+  screen_redraw()
+end
+
 function cleanup()
   if clock_id       then clock.cancel(clock_id)       end
   if morph_clock_id then clock.cancel(morph_clock_id) end
