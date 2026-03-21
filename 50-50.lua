@@ -135,6 +135,15 @@ end
 local midi_out
 local DRUM_CH      = 1
 local BASS_CH      = 2
+
+-- ── OP-XY MIDI output ──
+local opxy_out = nil
+local function opxy_note_on(note, vel)
+  if opxy_out then opxy_out:note_on(note, vel, params:get("opxy_channel")) end
+end
+local function opxy_note_off(note)
+  if opxy_out then opxy_out:note_off(note, 0, params:get("opxy_channel")) end
+end
 local grid_device
 local clock_id
 local morph_clock_id
@@ -375,14 +384,17 @@ local TOTAL_BASS = 36
 -- ─────────────────────────────────────────────
 local function midi_note_on(ch, note, vel)
   if midi_out then midi_out:note_on(note, vel, ch) end
+  opxy_note_on(note, vel)
 end
 local function midi_note_off(ch, note)
   if midi_out then midi_out:note_off(note, 0, ch) end
+  opxy_note_off(note)
 end
 local function midi_all_notes_off(ch)
   if midi_out then
     midi_out:cc(123, 0, ch)
   end
+  if opxy_out then opxy_out:cc(123, 0, params:get("opxy_channel")) end
 end
 
 -- ─────────────────────────────────────────────
@@ -1278,6 +1290,13 @@ local function add_params()
     midi_out=midi.connect(v)
   end)
 
+  params:add_separator("OP-XY")
+  params:add_number("opxy_device","OP-XY MIDI Device",1,4,2)
+  params:set_action("opxy_device",function(v)
+    opxy_out=midi.connect(v)
+  end)
+  params:add_number("opxy_channel","OP-XY MIDI Channel",1,16,1)
+
   -- PSET save/load is handled automatically by norns params system
   -- use PARAMS > PSET > SAVE to persist all settings
 end
@@ -1313,6 +1332,7 @@ function init()
   add_params()
 
   midi_out=midi.connect(params:get("midi_out_device"))
+  opxy_out=midi.connect(params:get("opxy_device"))
 
   local g=grid.connect()
   if g.device~=nil then
@@ -1346,5 +1366,6 @@ function cleanup()
   if active_bass_note_midi then midi_note_off(BASS_CH,active_bass_note_midi) end
   midi_all_notes_off(DRUM_CH)
   midi_all_notes_off(BASS_CH)
+  if opxy_out then opxy_out:cc(123, 0, params:get("opxy_channel")) end
   eng.kill_all()
 end
