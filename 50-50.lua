@@ -561,7 +561,8 @@ local function screen_redraw()
   local blabel = "ACID"
   if state.bass_muted then blabel=blabel.."[M]" end
   if state.stutter_bass then blabel=blabel.."[S]" end
-  if robot.active then blabel=blabel.."[ROBOT:"..robot.styles[robot.style_idx].."]"\n  elseif knob_loop.playing then blabel=blabel.."[LOOP]" end
+  if robot.active then blabel=blabel.."[ROBOT:"..robot.styles[robot.style_idx].."]"
+  elseif knob_loop.playing then blabel=blabel.."[LOOP]" end
   screen.level(state.bass_muted and 4 or 15) screen.text(blabel)
   screen.level(5) screen.font_size(7)
   screen.move(68,16)
