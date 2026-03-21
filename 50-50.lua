@@ -174,6 +174,7 @@ end
 local grid_device
 local clock_id
 local morph_clock_id
+local redraw_metro
 local knob_loop_clock_id
 local robot_clock_id
 local split_col    = 8        -- 4-12, divides drum/acid sides
@@ -1511,7 +1512,7 @@ function init()
   bandmate.clock_id = clock.run(bandmate_tick)
 
   -- Screen refresh at 15fps using dirty flag
-  local redraw_metro = metro.init()
+  redraw_metro = metro.init()
   redraw_metro.event = function()
     if dirty then
       dirty = false
@@ -1544,9 +1545,9 @@ function cleanup()
   if morph_clock_id then clock.cancel(morph_clock_id) end
   if robot_clock_id then clock.cancel(robot_clock_id) end
   if bandmate.clock_id then clock.cancel(bandmate.clock_id) end
+  if redraw_metro then redraw_metro:stop() end
   if active_bass_note_midi then midi_note_off(BASS_CH,active_bass_note_midi) end
-  midi_all_notes_off(DRUM_CH)
-  midi_all_notes_off(BASS_CH)
-  if opxy_out then opxy_out:cc(123, 0, params:get("opxy_channel")) end
+  if midi_out then for ch=1,16 do midi_out:cc(123,0,ch) end end
+  if opxy_out then for ch=1,16 do opxy_out:cc(123,0,ch) end end
   eng.kill_all()
 end
