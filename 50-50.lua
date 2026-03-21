@@ -53,6 +53,18 @@ local eng = {}
 
 local dirty = true
 local grid_dirty = true
+
+-- ─────────────────────────────────────────────
+-- BANDMATE MODE: auto-twists E2/E3 on tempo
+-- ─────────────────────────────────────────────
+local bandmate = {
+  active = false,
+  clock_id = nil,
+  phase = 0,
+  cutoff_lfo_speed = 0.25,
+  swing_lfo_speed = 0.0625,
+}
+
 local function midi_to_hz(note)
   return 440*(2^((note-69)/12))
 end
@@ -955,6 +967,42 @@ local function start_robot_clock()
 end
 
 -- ─────────────────────────────────────────────
+-- BANDMATE: auto-twist E2/E3 + filter on tempo
+-- ─────────────────────────────────────────────
+local function bandmate_tick()
+  while true do
+    clock.sync(1)
+    if not bandmate.active or not state.playing then goto skip end
+    bandmate.phase = bandmate.phase + 1
+
+    -- "Turn E2" — step through drum patterns (like slowly turning encoder)
+    if bandmate.phase % 2 == 0 then
+      local dir = math.sin(bandmate.phase * 0.03) > 0 and 1 or -1
+      state.drum_pattern = util.clamp(state.drum_pattern + dir, 1, TOTAL_DRUM)
+      state.drum_step = 1
+    end
+
+    -- "Turn E3" — step through bass patterns (offset phase)
+    if bandmate.phase % 3 == 0 then
+      local dir = math.cos(bandmate.phase * 0.05) > 0 and 1 or -1
+      state.bass_pattern = util.clamp(state.bass_pattern + dir, 1, TOTAL_BASS)
+      state.bass_step = 1
+    end
+
+    -- Sweep bass_cutoff with sine LFO
+    local cutoff_lfo = math.sin(bandmate.phase * bandmate.cutoff_lfo_speed) * 0.5 + 0.5
+    params:set("bass_cutoff", 200 + cutoff_lfo * 4800)
+
+    -- Subtle swing drift
+    local swing_lfo = math.sin(bandmate.phase * bandmate.swing_lfo_speed) * 0.5 + 0.5
+    params:set("swing", 40 + swing_lfo * 30)
+
+    dirty = true; grid_dirty = true
+    ::skip::
+  end
+end
+
+-- ─────────────────────────────────────────────
 -- TAP TEMPO
 -- ─────────────────────────────────────────────
 local function tap_tempo()
@@ -1299,6 +1347,18 @@ local function add_params()
   end)
   params:add_number("opxy_channel","OP-XY MIDI Channel",1,16,1)
 
+  -- BANDMATE
+  params:add_separator("BANDMATE")
+  params:add_option("bandmate_mode", "Bandmate", {"off", "on"}, 1)
+  params:set_action("bandmate_mode", function(v)
+    bandmate.active = (v == 2)
+    if bandmate.active and not bandmate.clock_id then
+      bandmate.phase = 0
+      bandmate.clock_id = clock.run(bandmate_tick)
+    end
+    dirty = true
+  end)
+
   -- PSET save/load is handled automatically by norns params system
   -- use PARAMS > PSET > SAVE to persist all settings
 end
@@ -1349,6 +1409,7 @@ function init()
   params:set("clock_tempo", state.bpm)
   start_morph_clock()
   start_robot_clock()
+  bandmate.clock_id = clock.run(bandmate_tick)
 
   -- Screen refresh at 15fps using dirty flag
   local redraw_metro = metro.init()
@@ -1383,6 +1444,7 @@ function cleanup()
   if clock_id       then clock.cancel(clock_id)       end
   if morph_clock_id then clock.cancel(morph_clock_id) end
   if robot_clock_id then clock.cancel(robot_clock_id) end
+  if bandmate.clock_id then clock.cancel(bandmate.clock_id) end
   if active_bass_note_midi then midi_note_off(BASS_CH,active_bass_note_midi) end
   midi_all_notes_off(DRUM_CH)
   midi_all_notes_off(BASS_CH)
