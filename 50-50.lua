@@ -16,9 +16,9 @@
 -- NEW: K1+K3: cycle Robot Mode styles (breathe/build/chaos/pocket)
 -- NEW: Multi-engine selection (PolyPerc / MollyThePoly / Supertonic)
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- ENGINE SELECTION (persisted to file)
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 local ENGINE_OPTIONS = {"PolyPerc", "MollyThePoly", "Supertonic"}
 local engine_file = _path.data .. "50-50/engine_choice.txt"
 
@@ -46,9 +46,9 @@ end
 local current_engine = read_engine_choice()
 engine.name = current_engine
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- ENGINE ABSTRACTION LAYER
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 local eng = {}
 
 local function midi_to_hz(note)
@@ -141,9 +141,9 @@ end
 
 setup_engine_interface()
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- STATE
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 local drum_active = true
 local bass_active = true
 
@@ -237,9 +237,9 @@ end
 local save_slot_hold_time = {}
 local save_slot_hold_threshold = 3  -- seconds to save
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- UTILITIES
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 
 local function constrain(v, min, max)
   return math.max(min, math.min(max, v))
@@ -374,9 +374,9 @@ local function save_slot_load(slot_idx)
   end
 end
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- PLAYBACK
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 
 local function play_drum(pattern_idx, step, vel)
   if drum_patterns[pattern_idx] and drum_patterns[pattern_idx][step] then
@@ -401,9 +401,9 @@ local function apply_params()
   eng.release_set(drum_params.release)
 end
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- CLOCK
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 
 local function clock_tick()
   tick_count = tick_count + 1
@@ -436,9 +436,9 @@ local function clock_tick()
   end
 end
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- GRID INTERFACE
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 
 local g = grid.connect()
 
@@ -555,9 +555,9 @@ local function grid_key(x, y, z)
   grid_redraw()
 end
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- KEY/ENC HANDLERS
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 
 local key_state = {false, false, false}  -- k1, k2, k3
 local enc_state = {0, 0, 0}  -- encoder values
@@ -621,9 +621,9 @@ function enc(n, delta)
   end
 end
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- SCREEN REDRAW
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 
 function redraw()
   screen.clear()
@@ -644,9 +644,9 @@ function redraw()
   screen.update()
 end
 
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 -- INIT
--- ─────────────────────────────────────────────
+-- ──────────────────────────────────────────────
 
 function init()
   load_state()
