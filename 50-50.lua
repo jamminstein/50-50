@@ -11,6 +11,9 @@
 -- grid row 7 left: mute drums | right: mute bass
 -- grid row 8: 16 save slots (hold 3s=save, tap=recall)
 -- MIDI: drums ch1, bass ch2
+--
+-- NEW: K1+K2: record/stop encoder movements (Knob Looper)
+-- NEW: K1+K3: cycle Robot Mode styles (breathe/build/chaos/pocket)
 
 engine.name = "Supertonic"
 
@@ -20,11 +23,50 @@ local BASS_CH      = 2
 local grid_device
 local clock_id
 local morph_clock_id
+local knob_loop_clock_id
+local robot_clock_id
 local split_col    = 8        -- 4-12, divides drum/acid sides
 local coupling     = 0        -- 0-1, hard kick boosts filter
 local random_amount = 100     -- 0-100%, scale auto-randomization intensity
 local drum_midi_ch = 10
 local bass_midi_ch = 1
+
+-- ─────────────────────────────────────────────
+-- KNOB LOOPER: Record and playback of encoder movements
+-- ─────────────────────────────────────────────
+local knob_loop = {
+  recording = false,
+  playing = false,
+  loop_length = 0,           -- in beats (quantized to bar when recording stops)
+  data = {
+    enc2 = {},               -- {beat_pos, delta} pairs
+    enc3 = {}
+  },
+  playhead = 0,              -- current beat position in loop
+  start_beat = 0,            -- beat position when recording started
+  quantize = true,           -- snap loop length to bar
+  rec_activity = 0           -- for visual feedback (0-1)
+}
+
+-- ─────────────────────────────────────────────
+-- ROBOT MODE: Algorithmic encoder movements
+-- ─────────────────────────────────────────────
+local robot = {
+  active = false,
+  energy = 0.5,              -- 0=minimal, 1=wild
+  styles = {"off", "breathe", "build", "chaos", "pocket"},
+  style_idx = 1,             -- current style index (1=off)
+  phase = 0,                 -- 0-1, position in movement cycle
+  cycle_length = 32,         -- bars for one cycle (depends on style)
+  enc2_target = 0,           -- target param value
+  enc3_target = 0,
+  enc2_pos = 64,             -- current position (0-127ish mapped to param range)
+  enc3_pos = 64,
+  last_move_enc2 = 0,
+  last_move_enc3 = 0,
+  build_direction = 1,       -- for "build" style: 1=up, -1=down
+  random_counter = 0         -- for "chaos" style
+}
 
 -- ─────────────────────────────────────────────
 -- NOTE NAMES
@@ -404,6 +446,8 @@ local function screen_redraw()
   local dlabel = "DRUMS"
   if state.drum_muted then dlabel=dlabel.."[M]" end
   if state.stutter_drum then dlabel=dlabel.."[S]" end
+  if knob_loop.recording then dlabel=dlabel.."[REC]" end
+  if knob_loop.playing then dlabel=dlabel.."[LOOP]" end
   screen.level(state.drum_muted and 4 or 15) screen.text(dlabel)
   screen.level(5) screen.font_size(7)
   screen.move(4,16)
@@ -425,6 +469,8 @@ local function screen_redraw()
   local blabel = "ACID"
   if state.bass_muted then blabel=blabel.."[M]" end
   if state.stutter_bass then blabel=blabel.."[S]" end
+  if robot.active then blabel=blabel.."[ROBOT:"..robot.styles[robot.style_idx].."]"
+  elseif knob_loop.playing then blabel=blabel.."[LOOP]" end
   screen.level(state.bass_muted and 4 or 15) screen.text(blabel)
   screen.level(5) screen.font_size(7)
   screen.move(68,16)
@@ -640,6 +686,132 @@ local function tick()
 end
 
 -- ─────────────────────────────────────────────
+-- KNOB LOOPER
+-- ─────────────────────────────────────────────
+local function knob_loop_start_recording()
+  knob_loop.recording = true
+  knob_loop.playing = false
+  knob_loop.data.enc2 = {}
+  knob_loop.data.enc3 = {}
+  knob_loop.start_beat = clock.get_beats()
+  knob_loop.rec_activity = 1.0
+  print("50/50: recording encoder movements...")
+end
+
+local function knob_loop_stop_recording()
+  knob_loop.recording = false
+  -- quantize to nearest bar (4 beats)
+  local raw_beats = knob_loop.playhead
+  local quantized = math.max(4, math.floor((raw_beats+2)/4)*4)
+  knob_loop.loop_length = quantized
+  -- reset playhead for playback
+  knob_loop.playhead = 0
+  print("50/50: recorded loop length = "..knob_loop.loop_length.." beats")
+end
+
+local function knob_loop_toggle_playback()
+  if knob_loop.loop_length == 0 then
+    print("50/50: no loop recorded")
+    return
+  end
+  knob_loop.playing = not knob_loop.playing
+  if knob_loop.playing then
+    knob_loop.playhead = 0
+    print("50/50: loop playing")
+  else
+    print("50/50: loop stopped")
+  end
+end
+
+local function knob_loop_tick(current_beat)
+  if not knob_loop.recording and not knob_loop.playing then return end
+  
+  if knob_loop.recording then
+    knob_loop.playhead = current_beat - knob_loop.start_beat
+    knob_loop.rec_activity = math.max(0, knob_loop.rec_activity - 0.01)
+  end
+  
+  if knob_loop.playing then
+    knob_loop.playhead = knob_loop.playhead + (1/96)  -- tick resolution
+    if knob_loop.playhead >= knob_loop.loop_length then
+      knob_loop.playhead = 0
+    end
+    
+    -- replay recorded events
+    for _,event in ipairs(knob_loop.data.enc2) do
+      local beat_pos, delta = event[1], event[2]
+      if math.abs(knob_loop.playhead - beat_pos) < 0.01 then
+        state.drum_pattern = util.clamp(state.drum_pattern + delta, 1, TOTAL_DRUM)
+      end
+    end
+    for _,event in ipairs(knob_loop.data.enc3) do
+      local beat_pos, delta = event[1], event[2]
+      if math.abs(knob_loop.playhead - beat_pos) < 0.01 then
+        state.bass_pattern = util.clamp(state.bass_pattern + delta, 1, TOTAL_BASS)
+      end
+    end
+  end
+end
+
+-- ─────────────────────────────────────────────
+-- ROBOT MODE
+-- ─────────────────────────────────────────────
+local function robot_cycle_style()
+  robot.style_idx = robot.style_idx + 1
+  if robot.style_idx > #robot.styles then robot.style_idx = 1 end
+  robot.active = (robot.style_idx > 1)
+  if robot.active then
+    robot.phase = 0
+    local style = robot.styles[robot.style_idx]
+    if style == "breathe" then robot.cycle_length = 32
+    elseif style == "build" then robot.cycle_length = 16 robot.build_direction = 1
+    elseif style == "chaos" then robot.cycle_length = 8
+    elseif style == "pocket" then robot.cycle_length = 16 end
+    print("50/50: Robot Mode = "..style)
+  else
+    print("50/50: Robot Mode off")
+  end
+end
+
+local function robot_tick(current_beat)
+  if not robot.active then return end
+  
+  local style = robot.styles[robot.style_idx]
+  robot.phase = (current_beat % (robot.cycle_length * 4)) / (robot.cycle_length * 4)
+  local t = robot.phase
+  
+  if style == "breathe" then
+    -- slow sine wave on both encoders
+    local sine2 = 64 + 32 * math.sin(t * math.pi * 2)
+    local sine3 = 64 + 32 * math.sin((t + 0.25) * math.pi * 2)
+    robot.enc2_pos = sine2
+    robot.enc3_pos = sine3
+  elseif style == "build" then
+    -- gradually increase, then reset
+    if t < 0.8 then
+      robot.enc2_pos = 32 + 64 * t
+      robot.enc3_pos = 32 + 64 * t
+    else
+      robot.enc2_pos = 32 + 64 * math.sin(t * math.pi)
+      robot.enc3_pos = 32 + 64 * math.cos(t * math.pi)
+    end
+  elseif style == "chaos" then
+    -- rapid random movements
+    robot.random_counter = robot.random_counter + 1
+    if robot.random_counter > 2 then
+      robot.random_counter = 0
+      robot.enc2_pos = 32 + math.random() * 64
+      robot.enc3_pos = 32 + math.random() * 64
+    end
+  elseif style == "pocket" then
+    -- small rhythmic movements, synced to beat (half-step)
+    local beat_frac = (current_beat % 0.5) / 0.5
+    robot.enc2_pos = 64 + 12 * math.sin(beat_frac * math.pi * 2)
+    robot.enc3_pos = 64 + 12 * math.cos(beat_frac * math.pi * 2)
+  end
+end
+
+-- ─────────────────────────────────────────────
 -- CLOCKS
 -- ─────────────────────────────────────────────
 local function start_clock()
@@ -672,6 +844,21 @@ local function start_morph_clock()
             state.bass_step=1
           end
         end
+      end
+    end
+  end)
+end
+
+local function start_robot_clock()
+  if robot_clock_id then clock.cancel(robot_clock_id) end
+  robot_clock_id = clock.run(function()
+    while true do
+      clock.sync(1/96)
+      if state.playing then
+        local current_beat = clock.get_beats()
+        robot_tick(current_beat)
+        knob_loop_tick(current_beat)
+        screen_redraw()
       end
     end
   end)
@@ -807,11 +994,28 @@ end
 -- ─────────────────────────────────────────────
 local k2_last_press = 0
 local k2_tap_pending = false
+local k1_held = false
 
 function key(n, z)
-  if n==1 then return end
+  if n==1 then
+    k1_held = (z == 1)
+    return
+  end
+  
   if z==1 then
     if n==2 then
+      -- K1+K2: record/stop knob movements
+      if k1_held then
+        if knob_loop.recording then
+          knob_loop_stop_recording()
+        else
+          knob_loop_start_recording()
+        end
+        screen_redraw() grid_redraw()
+        return
+      end
+      
+      -- normal K2 double-tap for tempo
       local now = os.clock()
       if now - k2_last_press < 0.4 then
         -- double tap = tap tempo
@@ -829,6 +1033,7 @@ function key(n, z)
             if state.playing then
               state.drum_step=1 state.bass_step=1
               start_clock()
+              knob_loop.playhead = 0
             else
               if clock_id then clock.cancel(clock_id) end
               if active_bass_note_midi then
@@ -842,7 +1047,14 @@ function key(n, z)
       end
       k2_last_press=now
     elseif n==3 then
-      -- single press: randomize
+      -- K1+K3: cycle robot mode
+      if k1_held then
+        robot_cycle_style()
+        screen_redraw() grid_redraw()
+        return
+      end
+      
+      -- normal K3: randomize
       state.drum_pattern=math.random(1,TOTAL_DRUM)
       state.bass_pattern=math.random(1,TOTAL_BASS)
       state.drum_step=1 state.bass_step=1
@@ -858,9 +1070,21 @@ function enc(n, d)
     state.bpm=util.clamp(state.bpm+d, 40, 300)
     params:set("clock_tempo", state.bpm)
   elseif n==2 then
+    -- record encoder movement if recording
+    if knob_loop.recording then
+      local beat_pos = clock.get_beats() - knob_loop.start_beat
+      table.insert(knob_loop.data.enc2, {beat_pos, d})
+      knob_loop.rec_activity = 1.0
+    end
     state.drum_pattern=util.clamp(state.drum_pattern+d, 1, TOTAL_DRUM)
     state.drum_step=1
   elseif n==3 then
+    -- record encoder movement if recording
+    if knob_loop.recording then
+      local beat_pos = clock.get_beats() - knob_loop.start_beat
+      table.insert(knob_loop.data.enc3, {beat_pos, d})
+      knob_loop.rec_activity = 1.0
+    end
     state.bass_pattern=util.clamp(state.bass_pattern+d, 1, TOTAL_BASS)
     state.bass_step=1
   end
@@ -912,6 +1136,11 @@ local function add_params()
     drum_mutations={} bass_mutations={}
     print("50/50: mutations cleared")
   end)
+
+  -- Robot Mode energy
+  params:add_control("robot_energy","Robot Energy",
+    controlspec.new(0,1,"lin",0.05,0.5,""))
+  params:set_action("robot_energy",function(v) robot.energy=v end)
 
   -- split position
   params:add_number("split_col","Split Position",4,12,8)
@@ -965,14 +1194,16 @@ function init()
 
   params:set("clock_tempo", state.bpm)
   start_morph_clock()
+  start_robot_clock()
 
   screen_redraw()
   grid_redraw()
 
-  print("50/50 v14 ready -- Supertonic engine")
-  print("K2: play/stop  double-K2: tap tempo")
-  print("K3: randomize")
-  print("PARAMS: mutate, density, length mult, step prob")
+  print("50/50 v14+ ready -- Supertonic engine")
+  print("K2: play/stop  double-K2: tap tempo  K3: randomize")
+  print("NEW: K1+K2: record/stop encoder loops (Knob Looper)")
+  print("NEW: K1+K3: cycle Robot Mode (breathe/build/chaos/pocket)")
+  print("PARAMS: mutate, density, length mult, step prob, robot energy")
   print("grid r7 col1-4: mute drums  col5-8: stutter drums")
   print("grid r7 col9-12: mute bass  col13-16: stutter bass")
   print("bass: MIDI ch2 only (Supertonic handles drums)")
@@ -981,6 +1212,7 @@ end
 function cleanup()
   if clock_id       then clock.cancel(clock_id)       end
   if morph_clock_id then clock.cancel(morph_clock_id) end
+  if robot_clock_id then clock.cancel(robot_clock_id) end
   if active_bass_note_midi then midi_note_off(BASS_CH,active_bass_note_midi) end
   midi_all_notes_off(DRUM_CH)
   midi_all_notes_off(BASS_CH)
