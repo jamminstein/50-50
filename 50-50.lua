@@ -55,14 +55,27 @@ local dirty = true
 local grid_dirty = true
 
 -- ─────────────────────────────────────────────
--- BANDMATE MODE: auto-twists E2/E3 on tempo
+-- BANDMATE MODE: auto-twists knobs on tempo
+-- coexists with manual tweaks — never fights you
 -- ─────────────────────────────────────────────
 local bandmate = {
   active = false,
   clock_id = nil,
   phase = 0,
-  cutoff_lfo_speed = 0.25,
-  swing_lfo_speed = 0.0625,
+  bar = 0,
+  energy = 0.5,         -- 0=minimal, 1=frenetic
+  energy_target = 0.5,
+  direction = 1,         -- 1=building, -1=dropping
+  arc_length = 16,       -- bars per tension arc
+  -- LFO speeds
+  cutoff_speed = 0.2,
+  swing_speed = 0.05,
+  density_speed = 0.08,
+  -- pattern change rate (beats between changes)
+  drum_change_rate = 8,
+  bass_change_rate = 12,
+  -- morph vs jump
+  use_morph = true,
 }
 
 local function midi_to_hz(note)
@@ -967,35 +980,108 @@ local function start_robot_clock()
 end
 
 -- ─────────────────────────────────────────────
--- BANDMATE: auto-twist E2/E3 + filter on tempo
+-- BANDMATE: musical companion that jams with you
+-- builds tension arcs, sweeps filters, morphs patterns
+-- never stops when you touch knobs — catches up and keeps going
 -- ─────────────────────────────────────────────
 local function bandmate_tick()
   while true do
-    clock.sync(1)
+    clock.sync(1) -- every beat
     if not bandmate.active or not state.playing then goto skip end
     bandmate.phase = bandmate.phase + 1
 
-    -- "Turn E2" — step through drum patterns (like slowly turning encoder)
-    if bandmate.phase % 2 == 0 then
-      local dir = math.sin(bandmate.phase * 0.03) > 0 and 1 or -1
-      state.drum_pattern = util.clamp(state.drum_pattern + dir, 1, TOTAL_DRUM)
-      state.drum_step = 1
+    -- ── TENSION ARC: energy builds and drops over bars ──
+    local beat_in_bar = bandmate.phase % 4
+    if beat_in_bar == 0 then
+      bandmate.bar = bandmate.bar + 1
+      -- Evolve energy toward target
+      bandmate.energy = bandmate.energy + (bandmate.energy_target - bandmate.energy) * 0.1
+      -- At arc boundaries, pick new direction
+      if bandmate.bar % bandmate.arc_length == 0 then
+        if math.random() < 0.3 then
+          -- dramatic shift
+          bandmate.energy_target = math.random() < 0.5 and 0.1 or 0.95
+        else
+          -- gentle drift
+          bandmate.energy_target = util.clamp(bandmate.energy_target + (math.random() - 0.5) * 0.4, 0.1, 0.95)
+        end
+      end
     end
 
-    -- "Turn E3" — step through bass patterns (offset phase)
-    if bandmate.phase % 3 == 0 then
-      local dir = math.cos(bandmate.phase * 0.05) > 0 and 1 or -1
-      state.bass_pattern = util.clamp(state.bass_pattern + dir, 1, TOTAL_BASS)
-      state.bass_step = 1
+    local e = bandmate.energy -- shorthand
+
+    -- ── FILTER SWEEP: continuous, speed follows energy ──
+    local cutoff_lfo = math.sin(bandmate.phase * bandmate.cutoff_speed * (0.5 + e)) * 0.5 + 0.5
+    local cutoff_range_lo = 200 + (1 - e) * 400   -- low energy = narrower range
+    local cutoff_range_hi = 2000 + e * 4000        -- high energy = wider range
+    params:set("bass_cutoff", cutoff_range_lo + cutoff_lfo * (cutoff_range_hi - cutoff_range_lo))
+
+    -- ── SWING: drifts with energy ──
+    local swing_lfo = math.sin(bandmate.phase * bandmate.swing_speed) * 0.5 + 0.5
+    local swing_val = 35 + swing_lfo * 30 + e * 15 -- more energy = more swing range
+    params:set("swing", util.clamp(swing_val, 30, 85))
+
+    -- ── DRUM DENSITY: follows energy ──
+    local dens_target = 50 + e * 50  -- low energy = sparse, high = dense
+    local dens_lfo = math.sin(bandmate.phase * bandmate.density_speed) * 10
+    params:set("drum_density", util.clamp(dens_target + dens_lfo, 30, 100))
+
+    -- ── STEP PROBABILITY: energy drives it ──
+    local prob = 60 + e * 40 + math.sin(bandmate.phase * 0.07) * 10
+    pcall(params.set, params, "step_prob", util.clamp(prob, 40, 100))
+
+    -- ── HUMANIZE: more at low energy (pocket), less at high (tight) ──
+    local humanize = (1 - e) * 6 + 1
+    pcall(params.set, params, "humanize", util.clamp(humanize, 0, 8))
+
+    -- ── PATTERN CHANGES: "turn E2/E3" ──
+    -- step through patterns, speed depends on energy
+    local drum_rate = math.floor(bandmate.drum_change_rate * (1.5 - e)) -- faster when high energy
+    if bandmate.phase % math.max(2, drum_rate) == 0 then
+      if bandmate.use_morph and state.playing then
+        -- morph: set target and let the morph clock handle transition
+        local target = util.clamp(state.drum_pattern + (math.random() < 0.5 and 1 or -1), 1, TOTAL_DRUM)
+        if not state.drum_morph_target then
+          state.drum_morph_target = target
+        end
+      else
+        -- direct jump
+        state.drum_pattern = util.clamp(state.drum_pattern + (math.random() < 0.5 and 1 or -1), 1, TOTAL_DRUM)
+        state.drum_step = 1
+      end
     end
 
-    -- Sweep bass_cutoff with sine LFO
-    local cutoff_lfo = math.sin(bandmate.phase * bandmate.cutoff_lfo_speed) * 0.5 + 0.5
-    params:set("bass_cutoff", 200 + cutoff_lfo * 4800)
+    local bass_rate = math.floor(bandmate.bass_change_rate * (1.5 - e))
+    if bandmate.phase % math.max(3, bass_rate) == 0 then
+      if bandmate.use_morph and state.playing then
+        local target = util.clamp(state.bass_pattern + (math.random() < 0.5 and 1 or -1), 1, TOTAL_BASS)
+        if not state.bass_morph_target then
+          state.bass_morph_target = target
+        end
+      else
+        state.bass_pattern = util.clamp(state.bass_pattern + (math.random() < 0.5 and 1 or -1), 1, TOTAL_BASS)
+        state.bass_step = 1
+      end
+    end
 
-    -- Subtle swing drift
-    local swing_lfo = math.sin(bandmate.phase * bandmate.swing_lfo_speed) * 0.5 + 0.5
-    params:set("swing", 40 + swing_lfo * 30)
+    -- ── MUTE DRAMA: occasional mute/unmute at arc peaks ──
+    if beat_in_bar == 0 and bandmate.bar % 4 == 0 then
+      if e > 0.85 and math.random() < 0.15 then
+        -- high energy: brief drum mute for drop effect
+        state.drum_muted = true
+        clock.run(function()
+          clock.sync(2)
+          state.drum_muted = false
+        end)
+      elseif e < 0.2 and math.random() < 0.2 then
+        -- low energy: mute bass for minimal moment
+        state.bass_muted = true
+        clock.run(function()
+          clock.sync(4)
+          state.bass_muted = false
+        end)
+      end
+    end
 
     dirty = true; grid_dirty = true
     ::skip::
@@ -1354,10 +1440,23 @@ local function add_params()
     bandmate.active = (v == 2)
     if bandmate.active and not bandmate.clock_id then
       bandmate.phase = 0
+      bandmate.bar = 0
       bandmate.clock_id = clock.run(bandmate_tick)
     end
     dirty = true
   end)
+  params:add_control("bandmate_energy", "Energy",
+    controlspec.new(0, 1, "lin", 0.01, 0.5, ""))
+  params:set_action("bandmate_energy", function(v)
+    bandmate.energy_target = v
+  end)
+  params:add_number("bandmate_arc", "Arc Length (bars)", 4, 64, 16)
+  params:set_action("bandmate_arc", function(v) bandmate.arc_length = v end)
+  params:add_option("bandmate_morph", "Pattern Change", {"morph", "jump"}, 1)
+  params:set_action("bandmate_morph", function(v) bandmate.use_morph = (v == 1) end)
+  params:add_control("bandmate_filter_speed", "Filter Speed",
+    controlspec.new(0.02, 1.0, "exp", 0.01, 0.2, ""))
+  params:set_action("bandmate_filter_speed", function(v) bandmate.cutoff_speed = v end)
 
   -- PSET save/load is handled automatically by norns params system
   -- use PARAMS > PSET > SAVE to persist all settings
