@@ -86,13 +86,13 @@ local function setup_engine_interface()
       engine.noteOff(note)
     end
     eng.set_cutoff = function(val)
-      params:set("filter_freq", val)
+      pcall(params.set, params, "filter_freq", val)
     end
     eng.set_release = function(val)
-      params:set("amp_env_release", val)
+      pcall(params.set, params, "amp_env_release", val)
     end
     eng.set_amp = function(val)
-      params:set("amp", val)
+      pcall(params.set, params, "amp", val)
     end
     eng.kill_all = function()
       engine.noteKillAll()
@@ -389,22 +389,22 @@ end
 -- HELPERS
 -- ─────────────────────────────────────────────
 local function valid_cell(c)
-  return type(c)=="table" and type(c[1])=="number" and type(c[2])=="number"
+  return type(c)==\"table\" and type(c[1])==\"number\" and type(c[2])==\"number\"
 end
 
 local function humanize_vel(vel)
-  local amt = params:get("humanize")*0.12
+  local amt = params:get(\"humanize\")*0.12
   return math.floor(util.clamp(vel+math.random(-1,1)*vel*amt, 1, 127))
 end
 local function humanize_delay()
-  local amt = params:get("humanize")
+  local amt = params:get(\"humanize\")
   return amt>0 and (math.random()*amt*0.006) or 0
 end
 local function swing_delay(step)
-  local sw = params:get("swing")
+  local sw = params:get(\"swing\")
   if sw==50 or step%2~=0 then return 0 end
   return ((sw-50)/50.0)*(60/state.bpm/4)*0.33
-end
+nend
 
 local function get_step(get_loop_fn, pat_a, pat_b, morph_pos, step_idx, len_mult)
   local loop_a = get_loop_fn(pat_a)
@@ -524,7 +524,7 @@ local function draw_vu(x, y, w, h, level)
 end
 
 local function mult_str(m)
-  if m==0.5 then return "/2" elseif m==2 then return "x2" else return "" end
+  if m==0.5 then return \"/2\" elseif m==2 then return \"x2\" else return \"\" end
 end
 
 local function screen_redraw()
@@ -535,47 +535,46 @@ local function screen_redraw()
   -- DRUMS
   screen.font_size(8)
   screen.move(4,8)
-  local dlabel = "DRUMS"
-  if state.drum_muted then dlabel=dlabel.."[M]" end
-  if state.stutter_drum then dlabel=dlabel.."[S]" end
-  if knob_loop.recording then dlabel=dlabel.."[REC]" end
-  if knob_loop.playing then dlabel=dlabel.."[LOOP]" end
+  local dlabel = \"DRUMS\"
+  if state.drum_muted then dlabel=dlabel..\"[M]\" end
+  if state.stutter_drum then dlabel=dlabel..\"[S]\" end
+  if knob_loop.recording then dlabel=dlabel..\"[REC]\" end
+  if knob_loop.playing then dlabel=dlabel..\"[LOOP]\" end
   screen.level(state.drum_muted and 4 or 15) screen.text(dlabel)
   screen.level(5) screen.font_size(7)
   screen.move(4,16)
   local dptn = state.drum_morph_target
-    and (state.drum_pattern.."->"..state.drum_morph_target)
-    or ("ptn "..state.drum_pattern..mult_str(state.drum_len_mult))
+    and (state.drum_pattern..\"->\"..state.drum_morph_target)
+    or (\"ptn \"..state.drum_pattern..mult_str(state.drum_len_mult))
   screen.text(dptn)
   draw_mini(2,21,get_drum_loop_maybe_mutated(state.drum_pattern),
     state.drum_step, state.drum_morph_target, state.morph_pos, state.drum_len_mult)
   draw_vu(2,30,58,3,state.drum_level)
-  screen.level(6) screen.font_size(7) screen.move(4,42) screen.text("BPM")
+  screen.level(6) screen.font_size(7) screen.move(4,42) screen.text(\"BPM\")
   screen.level(15) screen.font_size(16) screen.move(4,56) screen.text(tostring(state.bpm))
   screen.level(state.playing and 12 or 4) screen.font_size(7)
-  screen.move(38,56) screen.text(state.playing and ">" or "=")
+  screen.move(38,56) screen.text(state.playing and \">\" or \"=\")
 
   -- ACID
   screen.font_size(8)
   screen.move(68,8)
-  local blabel = "ACID"
-  if state.bass_muted then blabel=blabel.."[M]" end
-  if state.stutter_bass then blabel=blabel.."[S]" end
-  if robot.active then blabel=blabel.."[ROBOT:"..robot.styles[robot.style_idx].."]"
-  elseif knob_loop.playing then blabel=blabel.."[LOOP]" end
+  local blabel = \"ACID\"
+  if state.bass_muted then blabel=blabel..\"[M]\" end
+  if state.stutter_bass then blabel=blabel..\"[S]\" end
+  if robot.active then blabel=blabel..\"[ROBOT:\"..robot.styles[robot.style_idx]..\"]\"\n  elseif knob_loop.playing then blabel=blabel..\"[LOOP]\" end
   screen.level(state.bass_muted and 4 or 15) screen.text(blabel)
   screen.level(5) screen.font_size(7)
   screen.move(68,16)
   local bptn = state.bass_morph_target
-    and (state.bass_pattern.."->"..state.bass_morph_target)
-    or ("ptn "..state.bass_pattern..mult_str(state.bass_len_mult))
+    and (state.bass_pattern..\"->\"..state.bass_morph_target)
+    or (\"ptn \"..state.bass_pattern..mult_str(state.bass_len_mult))
   screen.text(bptn)
   draw_mini(66,21,get_bass_loop_maybe_mutated(state.bass_pattern),
     state.bass_step, state.bass_morph_target, state.morph_pos, state.bass_len_mult)
   draw_vu(66,30,58,3,state.bass_level)
-  screen.level(6) screen.font_size(7) screen.move(68,42) screen.text("NOTE")
+  screen.level(6) screen.font_size(7) screen.move(68,42) screen.text(\"NOTE\")
   screen.level(15) screen.font_size(16) screen.move(68,56)
-  screen.text(state.active_bass_note and note_name(state.active_bass_note) or "--")
+  screen.text(state.active_bass_note and note_name(state.active_bass_note) or \"--\")
 
   if state.drum_morph_target or state.bass_morph_target then
     screen.level(3) screen.rect(0,62,128,2) screen.fill()
@@ -656,7 +655,7 @@ local active_bass_note_midi = nil
 local function fire_drum(note, vel, extra_delay)
   local s = DRUM_SOUND[note]
   if not s then return end
-  local density = params:get("drum_density")/100.0
+  local density = params:get(\"drum_density\")/100.0
   local amp = (vel/127)*s.amp*density
   clock.run(function()
     local d=extra_delay+humanize_delay()+swing_delay(state.drum_step)
@@ -671,12 +670,12 @@ end
 
 local function fire_bass(note, vel, extra_delay)
   local amp    = (vel/127)*0.82
-  local cutoff = params:get("bass_cutoff")*(0.5+(vel/127)*0.5)
-  local porto  = params:get("portamento")
+  local cutoff = params:get(\"bass_cutoff\")*(0.5+(vel/127)*0.5)
+  local porto  = params:get(\"portamento\")
   clock.run(function()
     local d=extra_delay+humanize_delay()
     if d>0 then clock.sleep(d) end
-    eng.set_release(params:get("bass_release"))
+    eng.set_release(params:get(\"bass_release\"))
     eng.set_cutoff(cutoff)
     eng.set_amp(amp)
     -- portamento: slide from last hz
@@ -699,7 +698,7 @@ end
 
 -- probability gate: returns true if step should fire
 local function prob_gate(step_idx)
-  local prob = params:get("step_prob")
+  local prob = params:get(\"step_prob\")
   if prob >= 100 then return true end
   return math.random(100) <= prob
 end
@@ -771,7 +770,7 @@ local function knob_loop_start_recording()
   knob_loop.data.enc3 = {}
   knob_loop.start_beat = clock.get_beats()
   knob_loop.rec_activity = 1.0
-  print("50/50: recording encoder movements...")
+  print(\"50/50: recording encoder movements...\")
 end
 
 local function knob_loop_stop_recording()
@@ -782,20 +781,20 @@ local function knob_loop_stop_recording()
   knob_loop.loop_length = quantized
   -- reset playhead for playback
   knob_loop.playhead = 0
-  print("50/50: recorded loop length = "..knob_loop.loop_length.." beats")
+  print(\"50/50: recorded loop length = \"..knob_loop.loop_length..\" beats\")
 end
 
 local function knob_loop_toggle_playback()
   if knob_loop.loop_length == 0 then
-    print("50/50: no loop recorded")
+    print(\"50/50: no loop recorded\")
     return
   end
   knob_loop.playing = not knob_loop.playing
   if knob_loop.playing then
     knob_loop.playhead = 0
-    print("50/50: loop playing")
+    print(\"50/50: loop playing\")
   else
-    print("50/50: loop stopped")
+    print(\"50/50: loop stopped\")
   end
 end
 
@@ -839,13 +838,13 @@ local function robot_cycle_style()
   if robot.active then
     robot.phase = 0
     local style = robot.styles[robot.style_idx]
-    if style == "breathe" then robot.cycle_length = 32
-    elseif style == "build" then robot.cycle_length = 16 robot.build_direction = 1
-    elseif style == "chaos" then robot.cycle_length = 8
-    elseif style == "pocket" then robot.cycle_length = 16 end
-    print("50/50: Robot Mode = "..style)
+    if style == \"breathe\" then robot.cycle_length = 32
+    elseif style == \"build\" then robot.cycle_length = 16 robot.build_direction = 1
+    elseif style == \"chaos\" then robot.cycle_length = 8
+    elseif style == \"pocket\" then robot.cycle_length = 16 end
+    print(\"50/50: Robot Mode = \"..style)
   else
-    print("50/50: Robot Mode off")
+    print(\"50/50: Robot Mode off\")
   end
 end
 
@@ -856,13 +855,13 @@ local function robot_tick(current_beat)
   robot.phase = (current_beat % (robot.cycle_length * 4)) / (robot.cycle_length * 4)
   local t = robot.phase
   
-  if style == "breathe" then
+  if style == \"breathe\" then
     -- slow sine wave on both encoders
     local sine2 = 64 + 32 * math.sin(t * math.pi * 2)
     local sine3 = 64 + 32 * math.sin((t + 0.25) * math.pi * 2)
     robot.enc2_pos = sine2
     robot.enc3_pos = sine3
-  elseif style == "build" then
+  elseif style == \"build\" then
     -- gradually increase, then reset
     if t < 0.8 then
       robot.enc2_pos = 32 + 64 * t
@@ -871,7 +870,7 @@ local function robot_tick(current_beat)
       robot.enc2_pos = 32 + 64 * math.sin(t * math.pi)
       robot.enc3_pos = 32 + 64 * math.cos(t * math.pi)
     end
-  elseif style == "chaos" then
+  elseif style == \"chaos\" then
     -- rapid random movements
     robot.random_counter = robot.random_counter + 1
     if robot.random_counter > 2 then
@@ -879,7 +878,7 @@ local function robot_tick(current_beat)
       robot.enc2_pos = 32 + math.random() * 64
       robot.enc3_pos = 32 + math.random() * 64
     end
-  elseif style == "pocket" then
+  elseif style == \"pocket\" then
     -- small rhythmic movements, synced to beat (half-step)
     local beat_frac = (current_beat % 0.5) / 0.5
     robot.enc2_pos = 64 + 12 * math.sin(beat_frac * math.pi * 2)
@@ -906,7 +905,7 @@ local function start_morph_clock()
     while true do
       clock.sleep(1/30)
       if state.drum_morph_target or state.bass_morph_target then
-        state.morph_pos=state.morph_pos+params:get("morph_speed")
+        state.morph_pos=state.morph_pos+params:get(\"morph_speed\")
         if state.morph_pos>=1.0 then
           state.morph_pos=0.0
           if state.drum_morph_target then
@@ -961,7 +960,7 @@ local function tap_tempo()
     local avg = sum / (#state.tap_times-1)
     local new_bpm = math.floor(util.clamp(60/avg, 40, 300))
     state.bpm = new_bpm
-    params:set("clock_tempo", state.bpm)
+    params:set(\"clock_tempo\", state.bpm)
     screen_redraw()
   end
 end
@@ -985,7 +984,7 @@ local function grid_key(x, y, z)
           end
           clock.sleep(0.2)
           grid_redraw()
-          print("50/50: saved slot "..sx)
+          print(\"50/50: saved slot \"..sx)
         end
       end)
       clock.run(function()
@@ -1006,7 +1005,7 @@ local function grid_key(x, y, z)
             state.bass_pattern=slots[x].bass
             state.drum_step=1 state.bass_step=1
           end
-          print("50/50: recalled slot "..x)
+          print(\"50/50: recalled slot \"..x)
         end
       end
     end
@@ -1144,7 +1143,7 @@ end
 function enc(n, d)
   if n==1 then
     state.bpm=util.clamp(state.bpm+d, 40, 300)
-    params:set("clock_tempo", state.bpm)
+    params:set(\"clock_tempo\", state.bpm)
   elseif n==2 then
     -- record encoder movement if recording
     if knob_loop.recording then
@@ -1178,92 +1177,92 @@ local function tab_index(tbl, val)
 end
 
 local function add_params()
-  params:add_separator("50/50")
+  params:add_separator(\"50/50\")
 
   -- Engine selection
-  params:add_option("engine_select", "sound engine", ENGINE_OPTIONS,
+  params:add_option(\"engine_select\", \"sound engine\", ENGINE_OPTIONS,
     tab_index(ENGINE_OPTIONS, current_engine))
-  params:set_action("engine_select", function(val)
+  params:set_action(\"engine_select\", function(val)
     local new_engine = ENGINE_OPTIONS[val]
     if new_engine ~= current_engine then
       save_engine_choice(new_engine)
-      print("Switching engine to " .. new_engine .. " - reloading script...")
+      print(\"Switching engine to \" .. new_engine .. \" - reloading script...\")
       norns.script.load(norns.state.script)
     end
   end)
 
-  params:add_control("bass_cutoff","Bass Cutoff",
-    controlspec.new(100,8000,"exp",1,900,"hz"))
-  params:add_control("bass_release","Bass Release",
-    controlspec.new(0.01,2.0,"exp",0.01,0.18,"s"))
-  params:add_control("portamento","Portamento",
-    controlspec.new(0,0.3,"lin",0.01,0,"s"))
-  params:add_number("drum_density","Drum Density",10,100,100)
-  params:add_number("step_prob","Step Probability",10,100,100)
-  params:add_number("swing","Swing",0,100,50)
-  params:add_number("humanize","Humanize",0,10,2)
-  params:add_control("morph_speed","Morph Speed",
-    controlspec.new(0.001,0.05,"lin",0.001,0.015,""))
+  params:add_control(\"bass_cutoff\",\"Bass Cutoff\",
+    controlspec.new(100,8000,\"exp\",1,900,\"hz\"))
+  params:add_control(\"bass_release\",\"Bass Release\",
+    controlspec.new(0.01,2.0,\"exp\",0.01,0.18,\"s\"))
+  params:add_control(\"portamento\",\"Portamento\",
+    controlspec.new(0,0.3,\"lin\",0.01,0,\"s\"))
+  params:add_number(\"drum_density\",\"Drum Density\",10,100,100)
+  params:add_number(\"step_prob\",\"Step Probability\",10,100,100)
+  params:add_number(\"swing\",\"Swing\",0,100,50)
+  params:add_number(\"humanize\",\"Humanize\",0,10,2)
+  params:add_control(\"morph_speed\",\"Morph Speed\",
+    controlspec.new(0.001,0.05,\"lin\",0.001,0.015,\"\"))
 
   -- length multiplier per side
-  params:add_option("drum_len_mult","Drum Length",{"1/2","1x","2x"},2)
-  params:set_action("drum_len_mult",function(v)
+  params:add_option(\"drum_len_mult\",\"Drum Length\",{\"1/2\",\"1x\",\"2x\"},2)
+  params:set_action(\"drum_len_mult\",function(v)
     local mults={0.5,1,2}
     state.drum_len_mult=mults[v]
     state.drum_step=1
   end)
-  params:add_option("bass_len_mult","Bass Length",{"1/2","1x","2x"},2)
-  params:set_action("bass_len_mult",function(v)
+  params:add_option(\"bass_len_mult\",\"Bass Length\",{\"1/2\",\"1x\",\"2x\"},2)
+  params:set_action(\"bass_len_mult\",function(v)
     local mults={0.5,1,2}
     state.bass_len_mult=mults[v]
     state.bass_step=1
   end)
 
   -- mutation triggers
-  params:add_trigger("mutate_drum","Mutate Drum Pattern")
-  params:set_action("mutate_drum",function()
+  params:add_trigger(\"mutate_drum\",\"Mutate Drum Pattern\")
+  params:set_action(\"mutate_drum\",function()
     local base=get_drum_loop(state.drum_pattern)
     drum_mutations[state.drum_pattern]=mutate_pattern(base)
-    print("50/50: mutated drum "..state.drum_pattern)
+    print(\"50/50: mutated drum \"..state.drum_pattern)
   end)
-  params:add_trigger("mutate_bass","Mutate Bass Pattern")
-  params:set_action("mutate_bass",function()
+  params:add_trigger(\"mutate_bass\",\"Mutate Bass Pattern\")
+  params:set_action(\"mutate_bass\",function()
     local base=get_bass_loop(state.bass_pattern)
     bass_mutations[state.bass_pattern]=mutate_pattern(base)
-    print("50/50: mutated bass "..state.bass_pattern)
+    print(\"50/50: mutated bass \"..state.bass_pattern)
   end)
-  params:add_trigger("clear_mutations","Clear All Mutations")
-  params:set_action("clear_mutations",function()
+  params:add_trigger(\"clear_mutations\",\"Clear All Mutations\")
+  params:set_action(\"clear_mutations\",function()
     drum_mutations={} bass_mutations={}
-    print("50/50: mutations cleared")
+    print(\"50/50: mutations cleared\")
   end)
 
   -- Robot Mode energy
-  params:add_control("robot_energy","Robot Energy",
-    controlspec.new(0,1,"lin",0.05,0.5,""))
-  params:set_action("robot_energy",function(v) robot.energy=v end)
+  params:add_control(\"robot_energy\",\"Robot Energy\",
+    controlspec.new(0,1,\"lin\",0.05,0.5,\"\"))
+  params:set_action(\"robot_energy\",function(v) robot.energy=v end)
 
   -- split position
-  params:add_number("split_col","Split Position",4,12,8)
-  params:set_action("split_col",function(v) split_col=v end)
+  params:add_number(\"split_col\",\"Split Position\",4,12,8)
+  params:set_action(\"split_col\",function(v) split_col=v end)
 
   -- cross-side coupling
-  params:add_control("coupling","Cross-Side Coupling",
-    controlspec.new(0,1,"lin",0.01,0,""))
-  params:set_action("coupling",function(v) coupling=v end)
+  params:add_control(\"coupling\",\"Cross-Side Coupling\",
+    controlspec.new(0,1,\"lin\",0.01,0,\"\"))
+  params:set_action(\"coupling\",function(v) coupling=v end)
 
   -- randomize intensity
-  params:add_number("random_amount","Randomize Intensity",0,100,100)
-  params:set_action("random_amount",function(v) random_amount=v end)
+  params:add_number(\"random_amount\",\"Randomize Intensity\",0,100,100)
+  params:set_action(\"random_amount\",function(v) random_amount=v end)
 
   -- per-side MIDI channels
-  params:add_number("drum_midi_ch","Drum MIDI CH",1,16,10)
-  params:set_action("drum_midi_ch",function(v) drum_midi_ch=v end)
-  params:add_number("bass_midi_ch","Bass MIDI CH",1,16,1)
-  params:set_action("bass_midi_ch",function(v) bass_midi_ch=v end)
+  params:add_number(\"drum_midi_ch\",\"Drum MIDI CH\",1,16,10)
+  params:set_action(\"drum_midi_ch\",function(v) drum_midi_ch=v end)
+  params:add_number(\"bass_midi_ch\",\"Bass MIDI CH\",1,16,1)
+  params:set_action(\"bass_midi_ch\",function(v) bass_midi_ch=v end)
 
-  params:add_number("midi_out_device","MIDI Out Device",1,4,1)
-  params:set_action("midi_out_device",function(v)
+  params:add_number(\"midi_out_device\",\"MIDI Out Device\",1,4,1)
+  params:set_action(\"midi_out_device\",function(v)
     midi_out=midi.connect(v)
   end)
 
@@ -1287,21 +1286,21 @@ function init()
   setup_engine_interface()
 
   -- Engine-specific initialization
-  if current_engine == "PolyPerc" then
+  if current_engine == \"PolyPerc\" then
     engine.gain(4.0)
     engine.cutoff(900)
     engine.release(0.15)
     engine.amp(0.8)
-  elseif current_engine == "MollyThePoly" then
-    local MollyThePoly = require "molly_the_poly/lib/molly_the_poly_engine"
+  elseif current_engine == \"MollyThePoly\" then
+    local MollyThePoly = require \"molly_the_poly/lib/molly_the_poly_engine\"
     MollyThePoly.add_params()
-  elseif current_engine == "Supertonic" then
+  elseif current_engine == \"Supertonic\" then
     -- Supertonic setup (minimal for now, params will be added by its lib)
   end
 
   add_params()
 
-  midi_out=midi.connect(params:get("midi_out_device"))
+  midi_out=midi.connect(params:get(\"midi_out_device\"))
 
   local g=grid.connect()
   if g.device~=nil then
@@ -1309,20 +1308,20 @@ function init()
     grid_device.key=grid_key
   end
 
-  params:set("clock_tempo", state.bpm)
+  params:set(\"clock_tempo\", state.bpm)
   start_morph_clock()
   start_robot_clock()
 
   screen_redraw()
   grid_redraw()
 
-  print("50/50 v14 + Multi-Engine Ready")
-  print("Current Engine: " .. current_engine)
-  print("K1: System | K2: Play/Stop | K3: Randomize")
-  print("K2 double-tap: tap tempo")
-  print("K1+K2: record/stop encoder loops (Knob Looper)")
-  print("K1+K3: cycle Robot Mode (breathe/build/chaos/pocket)")
-  print("Change engine in PARAMS > sound engine (reloads script)")
+  print(\"50/50 v14 + Multi-Engine Ready\")
+  print(\"Current Engine: \" .. current_engine)
+  print(\"K1: System | K2: Play/Stop | K3: Randomize\")
+  print(\"K2 double-tap: tap tempo\")
+  print(\"K1+K2: record/stop encoder loops (Knob Looper)\")
+  print(\"K1+K3: cycle Robot Mode (breathe/build/chaos/pocket)\")
+  print(\"Change engine in PARAMS > sound engine (reloads script)\")
 end
 
 function cleanup()
