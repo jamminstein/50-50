@@ -86,10 +86,10 @@ local function setup_engine_interface()
       engine.noteOff(note)
     end
     eng.set_cutoff = function(val)
-      pcall(params.set, params, "filter_freq", val)
+      pcall(params.set, params, "lp_filter_cutoff", val)
     end
     eng.set_release = function(val)
-      pcall(params.set, params, "amp_env_release", val)
+      pcall(params.set, params, "env_2_release", val)
     end
     eng.set_amp = function(val)
       pcall(params.set, params, "amp", val)
@@ -1325,6 +1325,10 @@ function init()
   elseif current_engine == "MollyThePoly" then
     local MollyThePoly = require "molly_the_poly/lib/molly_the_poly_engine"
     MollyThePoly.add_params()
+    params:set("lp_filter_cutoff", 2000)
+    params:set("lp_filter_resonance", 0.15)
+    params:set("env_2_release", 0.5)
+    params:set("amp", 0.7)
   elseif current_engine == "Supertonic" then
     -- Supertonic setup (minimal for now, params will be added by its lib)
   end
