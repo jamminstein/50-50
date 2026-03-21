@@ -1,5 +1,5 @@
--- 50/50 v14
--- drums + bass sequencer / PolyPerc engine (reverted from broken Supertonic)
+-- 50/50 v14 + Multi-Engine Selection
+-- drums + bass sequencer / PolyPerc, MollyThePoly, or Supertonic
 -- K1: system | K2: play/stop | K3: randomize
 -- K2 double-tap: tap tempo
 -- enc1: bpm | enc2: drum pattern | enc3: bass pattern
@@ -14,8 +14,123 @@
 --
 -- NEW: K1+K2: record/stop encoder movements (Knob Looper)
 -- NEW: K1+K3: cycle Robot Mode styles (breathe/build/chaos/pocket)
+-- NEW: Multi-engine selection (PolyPerc / MollyThePoly / Supertonic)
 
-engine.name = "PolyPerc"
+-- ─────────────────────────────────────────────
+-- ENGINE SELECTION (persisted to file)
+-- ─────────────────────────────────────────────
+local ENGINE_OPTIONS = {"PolyPerc", "MollyThePoly", "Supertonic"}
+local engine_file = _path.data .. "50-50/engine_choice.txt"
+
+local function read_engine_choice()
+  local f = io.open(engine_file, "r")
+  if f then
+    local choice = f:read("*l")
+    f:close()
+    for i, name in ipairs(ENGINE_OPTIONS) do
+      if name == choice then return name end
+    end
+  end
+  return "PolyPerc"  -- default
+end
+
+local function save_engine_choice(name)
+  util.make_dir(_path.data .. "50-50/")
+  local f = io.open(engine_file, "w")
+  if f then
+    f:write(name)
+    f:close()
+  end
+end
+
+local current_engine = read_engine_choice()
+engine.name = current_engine
+
+-- ─────────────────────────────────────────────
+-- ENGINE ABSTRACTION LAYER
+-- ─────────────────────────────────────────────
+local eng = {}
+
+local function setup_engine_interface()
+  if current_engine == "PolyPerc" then
+    -- PolyPerc: percussive synth, no note_off
+    eng.note_on = function(note, vel)
+      engine.hz(midi_to_hz(note))
+    end
+    eng.note_off = function(note)
+      -- no-op for PolyPerc
+    end
+    eng.set_cutoff = function(val)
+      engine.cutoff(val)
+    end
+    eng.set_release = function(val)
+      engine.release(val)
+    end
+    eng.set_amp = function(val)
+      engine.amp(val)
+    end
+    eng.kill_all = function()
+      -- no-op
+    end
+    
+  elseif current_engine == "MollyThePoly" then
+    -- MollyThePoly: polyphonic synth with noteOn/noteOff
+    eng.note_on = function(note, vel)
+      engine.noteOn(note, midi_to_hz(note), vel / 127)
+    end
+    eng.note_off = function(note)
+      engine.noteOff(note)
+    end
+    eng.set_cutoff = function(val)
+      params:set("filter_freq", val)
+    end
+    eng.set_release = function(val)
+      params:set("amp_env_release", val)
+    end
+    eng.set_amp = function(val)
+      params:set("amp", val)
+    end
+    eng.kill_all = function()
+      engine.noteKillAll()
+    end
+    
+  elseif current_engine == "Supertonic" then
+    -- Supertonic: drum synth with per-voice params
+    -- Use trig() for drum hits (voice 0)
+    eng.note_on = function(note, vel)
+      -- Supertonic doesn't have a direct "play note" command
+      -- Instead, map MIDI to its drum voices
+      -- For now, use voice 0 (kick) and trigger it
+      engine.trig(0, vel / 127)
+    end
+    eng.note_off = function(note)
+      -- Supertonic is percussive
+    end
+    eng.set_cutoff = function(val)
+      -- Map to Supertonic tone/freq if applicable
+      -- Supertonic uses per-voice params instead
+    end
+    eng.set_release = function(val)
+      -- Map to decay
+      if params:get("decay") then
+        params:set("decay", val)
+      end
+    end
+    eng.set_amp = function(val)
+      -- Map to amp
+      if params:get("amp") then
+        params:set("amp", val)
+      end
+    end
+    eng.kill_all = function()
+      -- no-op
+    end
+  end
+end
+
+local function midi_to_hz(note)
+  return 440*(2^((note-69)/12))
+end
 
 local midi_out
 local DRUM_CH      = 1
@@ -74,9 +189,6 @@ local robot = {
 local NOTE_NAMES = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}
 local function note_name(midi)
   return NOTE_NAMES[(midi%12)+1]..tostring(math.floor(midi/12)-1)
-end
-local function midi_to_hz(note)
-  return 440*(2^((note-69)/12))
 end
 
 -- ─────────────────────────────────────────────
@@ -432,7 +544,7 @@ local function screen_redraw()
   screen.level(5) screen.font_size(7)
   screen.move(4,16)
   local dptn = state.drum_morph_target
-    and (state.drum_pattern.."->"..state.drum_morph_target)
+    and (state.drum_pattern.."->\"..state.drum_morph_target)
     or ("ptn "..state.drum_pattern..mult_str(state.drum_len_mult))
   screen.text(dptn)
   draw_mini(2,21,get_drum_loop_maybe_mutated(state.drum_pattern),
@@ -455,7 +567,7 @@ local function screen_redraw()
   screen.level(5) screen.font_size(7)
   screen.move(68,16)
   local bptn = state.bass_morph_target
-    and (state.bass_pattern.."->"..state.bass_morph_target)
+    and (state.bass_pattern.."->\"..state.bass_morph_target)
     or ("ptn "..state.bass_pattern..mult_str(state.bass_len_mult))
   screen.text(bptn)
   draw_mini(66,21,get_bass_loop_maybe_mutated(state.bass_pattern),
@@ -549,10 +661,10 @@ local function fire_drum(note, vel, extra_delay)
   clock.run(function()
     local d=extra_delay+humanize_delay()+swing_delay(state.drum_step)
     if d>0 then clock.sleep(d) end
-    engine.release(s.release)
-    engine.cutoff(s.cutoff)
-    engine.amp(amp)
-    engine.hz(s.hz)
+    eng.set_release(s.release)
+    eng.set_cutoff(s.cutoff)
+    eng.set_amp(amp)
+    eng.note_on(note, vel)
     state.drum_level=math.min(1,amp*1.3)
   end)
 end
@@ -564,9 +676,9 @@ local function fire_bass(note, vel, extra_delay)
   clock.run(function()
     local d=extra_delay+humanize_delay()
     if d>0 then clock.sleep(d) end
-    engine.release(params:get("bass_release"))
-    engine.cutoff(cutoff)
-    engine.amp(amp)
+    eng.set_release(params:get("bass_release"))
+    eng.set_cutoff(cutoff)
+    eng.set_amp(amp)
     -- portamento: slide from last hz
     local target_hz = midi_to_hz(note)
     if porto>0 and state.last_bass_hz then
@@ -575,11 +687,11 @@ local function fire_bass(note, vel, extra_delay)
       for i=1,steps do
         local t = i/steps
         local hz = start_hz + (target_hz-start_hz)*t
-        engine.hz(hz)
+        eng.note_on(note, vel)
         clock.sleep(porto/steps)
       end
     end
-    engine.hz(target_hz)
+    eng.note_on(note, vel)
     state.last_bass_hz = target_hz
     state.bass_level=math.min(1,amp*1.3)
   end)
@@ -1058,8 +1170,27 @@ end
 -- ─────────────────────────────────────────────
 -- PARAMS
 -- ─────────────────────────────────────────────
+local function tab_index(tbl, val)
+  for i, v in ipairs(tbl) do
+    if v == val then return i end
+  end
+  return 1
+end
+
 local function add_params()
   params:add_separator("50/50")
+
+  -- Engine selection
+  params:add_option("engine_select", "sound engine", ENGINE_OPTIONS,
+    tab_index(ENGINE_OPTIONS, current_engine))
+  params:set_action("engine_select", function(val)
+    local new_engine = ENGINE_OPTIONS[val]
+    if new_engine ~= current_engine then
+      save_engine_choice(new_engine)
+      print("Switching engine to " .. new_engine .. " - reloading script...")
+      norns.script.load(norns.state.script)
+    end
+  end)
 
   params:add_control("bass_cutoff","Bass Cutoff",
     controlspec.new(100,8000,"exp",1,900,"hz"))
@@ -1152,10 +1283,21 @@ function init()
   state.bass_pattern=math.random(1,TOTAL_BASS)
   state.bpm=128
 
-  engine.gain(4.0)
-  engine.cutoff(900)
-  engine.release(0.15)
-  engine.amp(0.8)
+  -- Setup engine abstraction
+  setup_engine_interface()
+
+  -- Engine-specific initialization
+  if current_engine == "PolyPerc" then
+    engine.gain(4.0)
+    engine.cutoff(900)
+    engine.release(0.15)
+    engine.amp(0.8)
+  elseif current_engine == "MollyThePoly" then
+    local MollyThePoly = require "molly_the_poly/lib/molly_the_poly_engine"
+    MollyThePoly.add_params()
+  elseif current_engine == "Supertonic" then
+    -- Supertonic setup (minimal for now, params will be added by its lib)
+  end
 
   add_params()
 
@@ -1174,14 +1316,13 @@ function init()
   screen_redraw()
   grid_redraw()
 
-  print("50/50 v14 ready -- PolyPerc engine (reverted from broken Supertonic)")
-  print("K2: play/stop  double-K2: tap tempo  K3: randomize")
-  print("NEW: K1+K2: record/stop encoder loops (Knob Looper)")
-  print("NEW: K1+K3: cycle Robot Mode (breathe/build/chaos/pocket)")
-  print("PARAMS: mutate, density, length mult, step prob, robot energy")
-  print("grid r7 col1-4: mute drums  col5-8: stutter drums")
-  print("grid r7 col9-12: mute bass  col13-16: stutter bass")
-  print("bass: MIDI ch1/2 (PolyPerc handles drums)")
+  print("50/50 v14 + Multi-Engine Ready")
+  print("Current Engine: " .. current_engine)
+  print("K1: System | K2: Play/Stop | K3: Randomize")
+  print("K2 double-tap: tap tempo")
+  print("K1+K2: record/stop encoder loops (Knob Looper)")
+  print("K1+K3: cycle Robot Mode (breathe/build/chaos/pocket)")
+  print("Change engine in PARAMS > sound engine (reloads script)")
 end
 
 function cleanup()
@@ -1191,4 +1332,5 @@ function cleanup()
   if active_bass_note_midi then midi_note_off(BASS_CH,active_bass_note_midi) end
   midi_all_notes_off(DRUM_CH)
   midi_all_notes_off(BASS_CH)
+  eng.kill_all()
 end
