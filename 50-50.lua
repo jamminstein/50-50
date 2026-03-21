@@ -245,6 +245,11 @@ end
 local function midi_note_off(ch, note)
   if midi_out then midi_out:note_off(note, 0, ch) end
 end
+local function midi_all_notes_off(ch)
+  if midi_out then
+    midi_out:cc(123, 0, ch)
+  end
+end
 
 -- ─────────────────────────────────────────────
 -- HELPERS
@@ -778,10 +783,10 @@ local function grid_key(x, y, z)
       -- col 9-12: mute bass | col 13-16: stutter bass
       if x<=4 then
         state.drum_muted=not state.drum_muted
-        if state.drum_muted then midi_note_off(DRUM_CH,36) end
+        if state.drum_muted then midi_all_notes_off(DRUM_CH) end
       elseif x<=8 then
         state.stutter_drum=not state.stutter_drum
-        if state.stutter_drum then state.stutter_step=state.drum_step end
+        if state.stutter_drum then state.stutter_step=util.clamp(state.drum_step, 1, 4) end
       elseif x<=12 then
         state.bass_muted=not state.bass_muted
         if state.bass_muted and active_bass_note_midi then
@@ -790,7 +795,7 @@ local function grid_key(x, y, z)
         end
       else
         state.stutter_bass=not state.stutter_bass
-        if state.stutter_bass then state.stutter_step=state.bass_step end
+        if state.stutter_bass then state.stutter_step=util.clamp(state.bass_step, 1, 4) end
       end
     end
     grid_redraw() screen_redraw()
@@ -977,4 +982,6 @@ function cleanup()
   if clock_id       then clock.cancel(clock_id)       end
   if morph_clock_id then clock.cancel(morph_clock_id) end
   if active_bass_note_midi then midi_note_off(BASS_CH,active_bass_note_midi) end
+  midi_all_notes_off(DRUM_CH)
+  midi_all_notes_off(BASS_CH)
 end
