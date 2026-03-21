@@ -544,7 +544,7 @@ local function screen_redraw()
   screen.level(5) screen.font_size(7)
   screen.move(4,16)
   local dptn = state.drum_morph_target
-    and (state.drum_pattern.."->\"..state.drum_morph_target)
+    and (state.drum_pattern.."->"..state.drum_morph_target)
     or ("ptn "..state.drum_pattern..mult_str(state.drum_len_mult))
   screen.text(dptn)
   draw_mini(2,21,get_drum_loop_maybe_mutated(state.drum_pattern),
@@ -567,7 +567,7 @@ local function screen_redraw()
   screen.level(5) screen.font_size(7)
   screen.move(68,16)
   local bptn = state.bass_morph_target
-    and (state.bass_pattern.."->\"..state.bass_morph_target)
+    and (state.bass_pattern.."->"..state.bass_morph_target)
     or ("ptn "..state.bass_pattern..mult_str(state.bass_len_mult))
   screen.text(bptn)
   draw_mini(66,21,get_bass_loop_maybe_mutated(state.bass_pattern),
