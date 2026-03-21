@@ -51,6 +51,10 @@ engine.name = current_engine
 -- ─────────────────────────────────────────────
 local eng = {}
 
+local function midi_to_hz(note)
+  return 440*(2^((note-69)/12))
+end
+
 local function setup_engine_interface()
   if current_engine == "PolyPerc" then
     -- PolyPerc: percussive synth, no note_off
@@ -126,10 +130,6 @@ local function setup_engine_interface()
       -- no-op
     end
   end
-end
-
-local function midi_to_hz(note)
-  return 440*(2^((note-69)/12))
 end
 
 local midi_out
